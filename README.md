@@ -113,3 +113,73 @@ Chương trình tạo hai ảnh kết quả để so sánh với ảnh ban đầ
 
 Hiệu quả của từng thuật toán phụ thuộc vào loại nhiễu, kích thước kernel và đặc điểm của ảnh đầu vào.
 
+
+## Pipeline tích hợp các thuật toán xử lý ảnh
+
+Dự án tích hợp các thuật toán xử lý ảnh của các thành viên vào một pipeline chung, cho phép thực hiện nhiều bước xử lý theo thứ tự do người dùng lựa chọn.
+
+### 1. Các thuật toán được tích hợp
+
+**Nhóm thuật toán của An — Cải thiện độ tương phản và nhị phân hóa**
+- Contrast Stretching: Kéo giãn độ tương phản ảnh.
+- Histogram Equalization: Cân bằng histogram ảnh xám.
+- Binarization: Nhị phân hóa ảnh theo ngưỡng.
+
+**Nhóm thuật toán của Uy — Bộ lọc ảnh**
+- Median Filter: Lọc trung vị để giảm nhiễu.
+- Gaussian Filter: Làm mượt ảnh bằng bộ lọc Gaussian.
+
+**Nhóm thuật toán của Diệp — Hình thái học**
+- Erosion: Co đối tượng.
+- Dilation: Giãn đối tượng.
+- Opening: Kết hợp co và giãn để hỗ trợ loại bỏ nhiễu nhỏ.
+- Closing: Kết hợp giãn và co để hỗ trợ lấp các khoảng trống nhỏ.
+
+### 2. Cấu trúc các file chính
+
+- `image_processing.py`: Chứa Median Filter, Gaussian Filter và hàm lưu ảnh.
+- `an_algorithms.py`: Chứa ba thuật toán của An.
+- `Diep/morphology.py`: Chứa bốn thuật toán hình thái học của Diệp.
+- `pipeline.py`: Tích hợp và thực thi các thuật toán theo thứ tự.
+- `input_images/`: Chứa ảnh đầu vào.
+- `output_images/`: Chứa ảnh kết quả mẫu.
+
+### 3. Cách sử dụng pipeline
+
+Tạo file Python hoặc chạy đoạn mã sau tại thư mục gốc của dự án:
+
+```python
+import cv2
+from pipeline import process_image
+
+image = cv2.imread("input_images/anhtest1.webp")
+
+if image is None:
+    raise FileNotFoundError("Không tìm thấy ảnh đầu vào.")
+
+steps = [
+    {"method": "contrast_stretching"},
+    {"method": "median_filter", "kernel_size": 3},
+    {"method": "binarization", "threshold": 127},
+]
+
+result = process_image(image, steps)
+
+cv2.imwrite("output_images/pipeline_result.jpg", result)
+print("Đã xử lý và lưu ảnh thành công!")
+```
+
+### 4. Chạy chương trình
+
+Cài đặt các thư viện cần thiết nếu máy chưa có:
+
+```bash
+pip install opencv-python numpy
+```
+
+Chạy đoạn mã sử dụng pipeline từ thư mục gốc của dự án. Có thể thay đổi danh sách `steps` để lựa chọn thuật toán và thứ tự xử lý.
+
+### 5. Kết quả kiểm thử
+
+Đã kiểm tra việc import pipeline và thực thi độc lập cả 9 thuật toán trên ảnh đầu vào mẫu. Các thuật toán trả về ảnh kết quả theo định dạng mong đợi.
+

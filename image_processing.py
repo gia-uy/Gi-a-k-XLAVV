@@ -54,23 +54,22 @@ def gaussian_filter(image, kernel_size=3, sigma=0):
     return result
 
 
-def save_image(image, output_path):
-    """
-    Lưu ảnh kết quả vào đường dẫn chỉ định.
-    """
-    if image is None:
-        raise ValueError("Không có ảnh để lưu.")
 
-    folder = os.path.dirname(output_path)
-    if folder:
-        os.makedirs(folder, exist_ok=True)
+def save_image(image, output_path):
+    """Lưu ảnh kết quả vào đường dẫn được chỉ định."""
+    if image is None:
+        raise ValueError("Ảnh cần lưu không hợp lệ.")
+
+    output_dir = os.path.dirname(output_path)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
 
     success = cv2.imwrite(output_path, image)
-
     if not success:
         raise IOError(f"Không thể lưu ảnh tại: {output_path}")
 
     print(f"Đã lưu ảnh: {output_path}")
+
 
 
 if __name__ == "__main__":
