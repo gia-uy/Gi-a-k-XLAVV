@@ -6,6 +6,7 @@ from services.contracts import normalize_steps
 from services.auto_enhance import enhance,analyze
 from enhancements.smart_enhance import smart_enhance
 from services.postprocessing import apply_extra_options
+from services.filter_service import apply_selected_filter
 
 router=APIRouter(prefix='/api',tags=['Process'])
 
@@ -63,34 +64,81 @@ async def smart_enhance_upload(file: UploadFile = File(...)):
         }
     )
     
+
 @router.post('/enhance-with-options')
 async def enhance_with_options(
     file: UploadFile = File(...),
     mode: str = Form('smart'),
     level: str = Form('vua'),
+    apply_filter: bool = Form(False),
+    filter_method: str = Form('median'),
+    filter_level: str = Form('nhe'),
     contrast: bool = Form(False),
     binarize: bool = Form(False),
 ):
     image = await read_image(file)
+
     try:
+        # 1. Người dùng có thể bật/tắt bộ lọc
+        filtered, filter_steps = apply_selected_filter(
+            image,
+            apply_filter=apply_filter,
+            filter_method=filter_method,
+            filter_level=filter_level
+        )
+
+        # 2. Smart Enhance hoặc Auto Enhance
         if mode == 'smart':
-            output, metadata = smart_enhance(image)
+            output, metadata = smart_enhance(filtered)
+
         elif mode == 'an':
-            output, metadata = enhance(image, level)
+            output, metadata = enhance(filtered, level)
+
         else:
             raise ValueError('mode phải là smart hoặc an')
-        output, extra_steps = apply_extra_options(output, contrast, binarize)
+
+        # 3. Tăng tương phản và nhị phân hóa
+        output, extra_steps = apply_extra_options(
+            output,
+            contrast,
+            binarize
+        )
+
+        # 4. Metadata
         metadata = dict(metadata)
-        metadata['steps'] = [*metadata.get('steps', []), *extra_steps]
-        metadata['extra_options'] = {'contrast': contrast, 'binarize': binarize}
+
+        metadata['steps'] = [
+            *filter_steps,
+            *metadata.get('steps', []),
+            *extra_steps
+        ]
+
+        metadata['filter_options'] = {
+            'enabled': apply_filter,
+            'method': filter_method if apply_filter else None,
+            'level': filter_level if apply_filter else None
+        }
+
+        metadata['extra_options'] = {
+            'contrast': contrast,
+            'binarize': binarize
+        }
+
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc)
+        ) from exc
+
     return Response(
         content=encode_png(output),
         media_type='image/png',
         headers={
-            'X-Processing-Metadata': json.dumps(metadata, ensure_ascii=True),
-            'Access-Control-Expose-Headers': 'X-Processing-Metadata',
-        },
+            'X-Processing-Metadata': json.dumps(
+                metadata,
+                ensure_ascii=True
+            ),
+            'Access-Control-Expose-Headers':
+                'X-Processing-Metadata'
+        }
     )
-

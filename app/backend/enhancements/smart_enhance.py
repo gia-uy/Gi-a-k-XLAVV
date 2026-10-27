@@ -87,27 +87,25 @@ def smart_enhance(image):
     decision = choose_method(analysis)
 
     # Dùng thuật toán Median của An
-    filtered = median_filter(gray, kernel_size=3)
-
+    
     if decision == "A":
-        processed = filtered
+        # Ảnh đã tương đối sáng và đều:
+        # không lọc để bảo toàn nét chữ.
+        processed = gray.copy()
+
         steps = [
-            {
-                "method": "median_filter",
-                "kernel_size": 3
-            }
+            {"method": "keep_original"}
         ]
+
     else:
+        # Chỉ hiệu chỉnh nền, không mặc định Median.
         processed = correct_background(
-            filtered,
+            gray,
             kernel_size=51,
             scale=255
         )
+
         steps = [
-            {
-                "method": "median_filter",
-                "kernel_size": 3
-            },
             {
                 "method": "background_correction",
                 "kernel_size": 51,
