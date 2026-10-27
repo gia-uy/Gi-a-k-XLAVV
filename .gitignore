@@ -1,4 +1,3 @@
-
 # Python cache
 __pycache__/
 *.py[cod]
@@ -9,3 +8,21 @@ venv/
 
 # IDE
 .vscode/
+
+# Environment variables / secrets
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+
+# Backup
+backend_backup/
+
+# Experimental images and generated outputs
+app/backend/diep_experiments/input/
+app/backend/diep_experiments/output/
+
+# Temporary files
+*.log
+.pytest_cache/
+.DS_Store

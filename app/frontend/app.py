@@ -1,6 +1,51 @@
 import streamlit as st
-from PIL import Image, ImageEnhance, ImageFilter
+from PIL import Image
 from io import BytesIO
+import io
+import json
+import requests
+from pathlib import Path
+
+API_URL = "http://127.0.0.1:8000/api"
+
+def process_with_api(image, mode="smart", noise_level="Vừa"):
+    buffer = io.BytesIO()
+    image.convert("RGB").save(buffer, format="PNG")
+    buffer.seek(0)
+
+    files = {
+        "file": ("scan.png", buffer, "image/png")
+    }
+
+    if mode == "smart":
+        endpoint = f"{API_URL}/smart-enhance"
+        data = {}
+    else:
+        endpoint = f"{API_URL}/auto-enhance"
+        levels = {
+            "Nhẹ": "nhe",
+            "Vừa": "vua",
+            "Mạnh": "manh"
+        }
+        data = {"level": levels[noise_level]}
+
+    response = requests.post(
+        endpoint,
+        files=files,
+        data=data,
+        timeout=120
+    )
+    response.raise_for_status()
+
+    processed = Image.open(
+        io.BytesIO(response.content)
+    ).copy()
+
+    metadata = json.loads(
+        response.headers.get("X-Processing-Metadata", "{}")
+    )
+
+    return processed, metadata
 
 st.set_page_config(
     page_title="ScanCare | Nâng cao chất lượng tài liệu",
@@ -13,14 +58,14 @@ st.set_page_config(
 if "page" not in st.session_state:
     st.session_state.page = "upload"  # "upload" hoặc "result"
 
+if "processing_mode" not in st.session_state:
+    st.session_state.processing_mode = "Smart Enhance"
+
+if "processing_metadata" not in st.session_state:
+    st.session_state.processing_metadata = {}
+
 if "noise_level" not in st.session_state:
     st.session_state.noise_level = "Vừa"
-
-if "enhance_contrast" not in st.session_state:
-    st.session_state.enhance_contrast = True
-
-if "binarize" not in st.session_state:
-    st.session_state.binarize = False
 
 if "image_original" not in st.session_state:
     st.session_state.image_original = None
@@ -32,30 +77,29 @@ if "file_name" not in st.session_state:
     st.session_state.file_name = "scancare_result.png"
 
 
-# ====================== HÀM XỬ LÝ ĐỀ XUẤT (STUB) ======================
-def process_document(image: Image.Image, noise_level: str, contrast: bool, binarize: bool) -> Image.Image:
-    res = image.copy()
-    
-    # 1. Giảm nhiễu theo 3 mức độ
-    if noise_level == "Nhẹ":
-        res = res.filter(ImageFilter.SMOOTH)
-    elif noise_level == "Vừa":
-        res = res.filter(ImageFilter.GaussianBlur(radius=0.8))
-    elif noise_level == "Mạnh":
-        res = res.filter(ImageFilter.MedianFilter(size=3))
+# Xử lý tài liệu thực tế được thực hiện bởi FastAPI qua process_with_api().
 
-    # 2. Tăng tương phản
-    if contrast:
-        enhancer = ImageEnhance.Contrast(res)
-        res = enhancer.enhance(1.6)
 
-    # 3. Nhị phân hóa
-    if binarize:
-        gray = res.convert("L")
-        threshold = 140
-        res = gray.point(lambda p: 255 if p > threshold else 0).convert("RGB")
 
-    return res
+def run_api_processing():
+    """Xu ly lai tu anh goc, khong cong don len ket qua cu."""
+    mode = "smart" if st.session_state.processing_mode == "Smart Enhance" else "an"
+    try:
+        with st.spinner("Đang xử lý ảnh bằng FastAPI..."):
+            output, metadata = process_with_api(
+                st.session_state.image_original,
+                mode=mode,
+                noise_level=st.session_state.noise_level,
+            )
+    except requests.exceptions.RequestException as exc:
+        st.error(f"Không kết nối được FastAPI hoặc API trả lỗi: {exc}")
+        return False
+    except (ValueError, OSError, json.JSONDecodeError) as exc:
+        st.error(f"Không đọc được kết quả xử lý: {exc}")
+        return False
+    st.session_state.image_processed = output
+    st.session_state.processing_metadata = metadata
+    return True
 
 
 def image_to_bytes(img: Image.Image) -> bytes:
@@ -405,47 +449,32 @@ if st.session_state.page == "upload":
         )
 
         with st.container(border=True):
-            st.markdown("**Hiển thị mức độ lọc nhiễu:**")
-
-            st.session_state.noise_level = st.radio(
-                "Mức lọc nhiễu",
-                ["Nhẹ", "Vừa", "Mạnh"],
-                index=["Nhẹ", "Vừa", "Mạnh"].index(st.session_state.noise_level),
+            st.session_state.processing_mode = st.radio(
+                "Phương pháp xử lý",
+                ["Smart Enhance", "Nhẹ / Vừa / Mạnh"],
+                index=["Smart Enhance", "Nhẹ / Vừa / Mạnh"].index(st.session_state.processing_mode),
                 horizontal=True,
-                label_visibility="collapsed",
+                key="mode_upload",
             )
 
-            # Lấy cấu hình màu sắc tương ứng với mức độ đã chọn
-            current_tip = TIPS_CONFIG[st.session_state.noise_level]
-            st.markdown(
-                f'<div class="tip-box" style="{current_tip["style"]}">{current_tip["text"]}</div>',
-                unsafe_allow_html=True,
-            )
+            if st.session_state.processing_mode == "Smart Enhance":
+                st.info("Tự phân tích tài liệu và chọn Median hoặc Median + hiệu chỉnh nền. Kết quả là ảnh mức xám.")
+            else:
+                st.markdown("**Mức độ lọc nhiễu:**")
+                st.session_state.noise_level = st.radio(
+                    "Mức lọc nhiễu",
+                    ["Nhẹ", "Vừa", "Mạnh"],
+                    index=["Nhẹ", "Vừa", "Mạnh"].index(st.session_state.noise_level),
+                    horizontal=True,
+                    label_visibility="collapsed",
+                )
+                current_tip = TIPS_CONFIG[st.session_state.noise_level]
+                st.markdown(
+                    f'<div class="tip-box" style="{current_tip["style"]}">{current_tip["text"]}</div>',
+                    unsafe_allow_html=True,
+                )
 
-            st.markdown("**Tùy chọn nâng cao:**")
-            
-            st.session_state.enhance_contrast = st.checkbox(
-                "Tăng độ tương phản",
-                value=st.session_state.enhance_contrast,
-            )
-            st.markdown(
-                '<div class="user-note">'
-                '<b>Nên dùng khi:</b> Nền giấy bị tối/xám hoặc chữ bị nhạt màu. Tùy chọn này giúp chữ nổi bật và sắc nét hơn.'
-                '</div>',
-                unsafe_allow_html=True,
-            )
-
-            st.session_state.binarize = st.checkbox(
-                "Làm rõ chữ bằng nhị phân hóa (Đen / Trắng)",
-                value=st.session_state.binarize,
-            )
-            st.markdown(
-                '<div class="user-note">'
-                '<b>Nên dùng khi:</b> Tài liệu thuần văn bản trắng đen<br>'
-                '<i>Không dùng khi: tài liệu có ảnh chụp, con dấu đỏ hoặc hình vẽ màu</i>'
-                '</div>',
-                unsafe_allow_html=True,
-            )
+            st.caption("Tăng tương phản và nhị phân hóa chưa được kết nối với hai API tự động; không áp dụng trong lần xử lý này.")
 
             st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
 
@@ -456,14 +485,9 @@ if st.session_state.page == "upload":
             )
 
             if btn_process and st.session_state.image_original is not None:
-                st.session_state.image_processed = process_document(
-                    st.session_state.image_original,
-                    st.session_state.noise_level,
-                    st.session_state.enhance_contrast,
-                    st.session_state.binarize,
-                )
-                st.session_state.page = "result"
-                st.rerun()
+                if run_api_processing():
+                    st.session_state.page = "result"
+                    st.rerun()
 
 
 # ====================== TRANG 2: TRANG KẾT QUẢ & CẤU HÌNH LẠI ======================
@@ -499,11 +523,16 @@ elif st.session_state.page == "result":
         if st.session_state.image_processed is not None:
             st.image(st.session_state.image_processed, use_container_width=True)
 
+            metadata = st.session_state.processing_metadata
+            if metadata:
+                with st.expander("Thông tin xử lý"):
+                    st.json(metadata)
+
             img_bytes = image_to_bytes(st.session_state.image_processed)
             st.download_button(
                 label="Tải ảnh kết quả về máy",
                 data=img_bytes,
-                file_name=f"enhanced_{st.session_state.file_name}",
+                file_name=f"enhanced_{Path(st.session_state.file_name).stem}.png",
                 mime="image/png",
                 use_container_width=True,
             )
@@ -513,62 +542,38 @@ elif st.session_state.page == "result":
     # KHUNG ĐIỀU CHỈNH VÀ XỬ LÝ LẠI
     st.markdown(
         '<div class="section-heading">Thay đổi tùy chọn & Xử lý lại</div>'
-        '<div class="section-description">Đổi mức độ hoặc bật/tắt tùy chọn nâng cao bên dưới để thử kết quả mới</div>',
+        '<div class="section-description">Chọn phương pháp và xử lý lại từ ảnh gốc.</div>',
         unsafe_allow_html=True,
     )
 
     with st.container(border=True):
-        col_opt1, col_opt2 = st.columns(2, gap="medium")
-
-        with col_opt1:
-            st.markdown("**Thay đổi mức độ lọc nhiễu:**")
+        st.session_state.processing_mode = st.radio(
+            "Phương pháp xử lý (Kết quả)",
+            ["Smart Enhance", "Nhẹ / Vừa / Mạnh"],
+            index=["Smart Enhance", "Nhẹ / Vừa / Mạnh"].index(st.session_state.processing_mode),
+            horizontal=True,
+            key="mode_result",
+        )
+        if st.session_state.processing_mode == "Nhẹ / Vừa / Mạnh":
             st.session_state.noise_level = st.radio(
-                "Mức độ lọc nhiễu (Kết quả)",
+                "Mức lọc nhiễu (Kết quả)",
                 ["Nhẹ", "Vừa", "Mạnh"],
                 index=["Nhẹ", "Vừa", "Mạnh"].index(st.session_state.noise_level),
                 horizontal=True,
                 key="radio_result_page",
             )
-            
-            # Đổi màu chú thích tương ứng trên trang kết quả
             current_tip = TIPS_CONFIG[st.session_state.noise_level]
             st.markdown(
                 f'<div class="tip-box" style="{current_tip["style"]}">{current_tip["text"]}</div>',
                 unsafe_allow_html=True,
             )
-
-        with col_opt2:
-            st.markdown("**Tùy chọn nâng cao:**")
-            st.session_state.enhance_contrast = st.checkbox(
-                "Tăng độ tương phản",
-                value=st.session_state.enhance_contrast,
-                key="contrast_result_page",
-            )
-            st.markdown(
-                '<div class="user-note"> Dùng khi chữ bị mờ hoặc nền xám.</div>',
-                unsafe_allow_html=True,
-            )
-
-            st.session_state.binarize = st.checkbox(
-                "Làm rõ chữ bằng nhị phân hóa",
-                value=st.session_state.binarize,
-                key="binarize_result_page",
-            )
-            st.markdown(
-                '<div class="user-note"> Chỉ dùng cho tài liệu chữ trắng đen.</div>',
-                unsafe_allow_html=True,
-            )
+        else:
+            st.info("Smart Enhance tự chọn phương pháp theo ảnh đầu vào.")
 
         btn_reprocess = st.button("Nâng cao lại chất lượng", use_container_width=True)
-
-        if btn_reprocess:
-            st.session_state.image_processed = process_document(
-                st.session_state.image_original,
-                st.session_state.noise_level,
-                st.session_state.enhance_contrast,
-                st.session_state.binarize,
-            )
-            st.rerun()
+        if btn_reprocess and st.session_state.image_original is not None:
+            if run_api_processing():
+                st.rerun()
 
 
 # ====================== FOOTER ======================
