@@ -5,8 +5,12 @@ import io
 import json
 import requests
 from pathlib import Path
+import os
 
-API_URL = "http://127.0.0.1:8000/api"
+API_URL = os.getenv(
+    "API_URL",
+    "http://127.0.0.1:8000/api"
+)
 
 def process_with_api(image, mode="smart", noise_level="Vừa"):
     buffer = io.BytesIO()
