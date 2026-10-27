@@ -7,48 +7,26 @@ import requests
 from pathlib import Path
 import os
 
-API_URL = os.getenv(
-    "API_URL",
-    "http://127.0.0.1:8000/api"
-)
+API_URL = os.getenv("API_URL", "http://127.0.0.1:8000/api").rstrip("/")
 
-def process_with_api(image, mode="smart", noise_level="Vừa"):
+def process_with_api(image, mode="smart", noise_level="Vừa", contrast=False, binarize=False):
     buffer = io.BytesIO()
     image.convert("RGB").save(buffer, format="PNG")
     buffer.seek(0)
-
-    files = {
-        "file": ("scan.png", buffer, "image/png")
+    files = {"file": ("scan.png", buffer, "image/png")}
+    levels = {"Nhẹ": "nhe", "Vừa": "vua", "Mạnh": "manh"}
+    data = {
+        "mode": mode,
+        "level": levels[noise_level],
+        "contrast": str(contrast).lower(),
+        "binarize": str(binarize).lower(),
     }
-
-    if mode == "smart":
-        endpoint = f"{API_URL}/smart-enhance"
-        data = {}
-    else:
-        endpoint = f"{API_URL}/auto-enhance"
-        levels = {
-            "Nhẹ": "nhe",
-            "Vừa": "vua",
-            "Mạnh": "manh"
-        }
-        data = {"level": levels[noise_level]}
-
     response = requests.post(
-        endpoint,
-        files=files,
-        data=data,
-        timeout=120
+        f"{API_URL}/enhance-with-options", files=files, data=data, timeout=120
     )
     response.raise_for_status()
-
-    processed = Image.open(
-        io.BytesIO(response.content)
-    ).copy()
-
-    metadata = json.loads(
-        response.headers.get("X-Processing-Metadata", "{}")
-    )
-
+    processed = Image.open(io.BytesIO(response.content)).copy()
+    metadata = json.loads(response.headers.get("X-Processing-Metadata", "{}"))
     return processed, metadata
 
 st.set_page_config(
@@ -67,6 +45,11 @@ if "processing_mode" not in st.session_state:
 
 if "processing_metadata" not in st.session_state:
     st.session_state.processing_metadata = {}
+
+if "enhance_contrast" not in st.session_state:
+    st.session_state.enhance_contrast = True
+if "binarize" not in st.session_state:
+    st.session_state.binarize = False
 
 if "noise_level" not in st.session_state:
     st.session_state.noise_level = "Vừa"
@@ -94,6 +77,8 @@ def run_api_processing():
                 st.session_state.image_original,
                 mode=mode,
                 noise_level=st.session_state.noise_level,
+                contrast=st.session_state.enhance_contrast,
+                binarize=st.session_state.binarize,
             )
     except requests.exceptions.RequestException as exc:
         st.error(f"Không kết nối được FastAPI hoặc API trả lỗi: {exc}")
@@ -478,7 +463,26 @@ if st.session_state.page == "upload":
                     unsafe_allow_html=True,
                 )
 
-            st.caption("Tăng tương phản và nhị phân hóa chưa được kết nối với hai API tự động; không áp dụng trong lần xử lý này.")
+            st.markdown("**Tùy chọn nâng cao:**")
+            st.session_state.enhance_contrast = st.checkbox(
+                "Tăng độ tương phản",
+                value=st.session_state.enhance_contrast,
+                key="contrast_upload",
+            )
+            st.markdown(
+                '<div class="user-note"><b>Nên dùng khi:</b> Nền giấy bị tối/xám hoặc chữ bị nhạt màu.</div>',
+                unsafe_allow_html=True,
+            )
+            st.session_state.binarize = st.checkbox(
+                "Làm rõ chữ bằng nhị phân hóa (Đen / Trắng)",
+                value=st.session_state.binarize,
+                key="binarize_upload",
+            )
+            st.markdown(
+                '<div class="user-note"><b>Nên dùng khi:</b> Tài liệu thuần văn bản trắng đen. '
+                '<i>Không nên dùng với tài liệu có hình ảnh hoặc con dấu màu.</i></div>',
+                unsafe_allow_html=True,
+            )
 
             st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
 
@@ -573,6 +577,19 @@ elif st.session_state.page == "result":
             )
         else:
             st.info("Smart Enhance tự chọn phương pháp theo ảnh đầu vào.")
+
+        st.markdown("**Tùy chọn nâng cao:**")
+        st.session_state.enhance_contrast = st.checkbox(
+            "Tăng độ tương phản",
+            value=st.session_state.enhance_contrast,
+            key="contrast_result_page",
+        )
+        st.session_state.binarize = st.checkbox(
+            "Làm rõ chữ bằng nhị phân hóa (Đen / Trắng)",
+            value=st.session_state.binarize,
+            key="binarize_result_page",
+        )
+        st.caption("Nhị phân hóa phù hợp nhất với tài liệu chỉ có chữ đen trên nền sáng.")
 
         btn_reprocess = st.button("Nâng cao lại chất lượng", use_container_width=True)
         if btn_reprocess and st.session_state.image_original is not None:

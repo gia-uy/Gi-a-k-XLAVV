@@ -5,6 +5,7 @@ from services.image_io import read_image, process_via_an, encode_png
 from services.contracts import normalize_steps
 from services.auto_enhance import enhance,analyze
 from enhancements.smart_enhance import smart_enhance
+from services.postprocessing import apply_extra_options
 
 router=APIRouter(prefix='/api',tags=['Process'])
 
@@ -61,3 +62,35 @@ async def smart_enhance_upload(file: UploadFile = File(...)):
                 'X-Processing-Metadata'
         }
     )
+    
+@router.post('/enhance-with-options')
+async def enhance_with_options(
+    file: UploadFile = File(...),
+    mode: str = Form('smart'),
+    level: str = Form('vua'),
+    contrast: bool = Form(False),
+    binarize: bool = Form(False),
+):
+    image = await read_image(file)
+    try:
+        if mode == 'smart':
+            output, metadata = smart_enhance(image)
+        elif mode == 'an':
+            output, metadata = enhance(image, level)
+        else:
+            raise ValueError('mode phải là smart hoặc an')
+        output, extra_steps = apply_extra_options(output, contrast, binarize)
+        metadata = dict(metadata)
+        metadata['steps'] = [*metadata.get('steps', []), *extra_steps]
+        metadata['extra_options'] = {'contrast': contrast, 'binarize': binarize}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return Response(
+        content=encode_png(output),
+        media_type='image/png',
+        headers={
+            'X-Processing-Metadata': json.dumps(metadata, ensure_ascii=True),
+            'Access-Control-Expose-Headers': 'X-Processing-Metadata',
+        },
+    )
+
